@@ -324,46 +324,6 @@ function App() {
     });
   }, []);
 
-  // Initialize the application
-  const initializeApp = useCallback(async () => {
-    if (typeof window.ethereum !== 'undefined') {
-      try {
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        
-        // Get network info
-        const network = await provider.getNetwork();
-        setNetworkInfo({ 
-          name: network.name === 'unknown' ? 'Localhost' : network.name, 
-          chainId: Number(network.chainId) 
-        });
-        
-        const accounts = await provider.send('eth_requestAccounts', []);
-        if (accounts.length > 0) {
-          setAccount(accounts[0]);
-          const signer = await provider.getSigner();
-          
-          const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-          setContract(contract);
-          setIsConnected(true);
-          
-          await loadVaultData(contract, accounts[0]);
-          await loadProposals(contract);
-          
-          addNotification('Successfully connected to PublicFundVault!', 'success');
-        }
-      } catch (error) {
-        console.error('Error initializing app:', error);
-        if (error.message.includes('User rejected')) {
-          addNotification('Connection rejected by user', 'error');
-        } else {
-          addNotification('Failed to connect to the application. Please ensure MetaMask is unlocked and the correct network is selected.', 'error');
-        }
-      }
-    } else {
-      addNotification('Please install MetaMask to use this application', 'error');
-    }
-  }, [addNotification, loadVaultData, loadProposals]);
-
   // Load vault data
   const loadVaultData = useCallback(async (contractInstance, userAddress) => {
     if (!contractInstance || !userAddress) {
@@ -449,6 +409,46 @@ function App() {
     }
   }, [addNotification]);
 
+  // Initialize the application
+  const initializeApp = useCallback(async () => {
+    if (typeof window.ethereum !== 'undefined') {
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        
+        // Get network info
+        const network = await provider.getNetwork();
+        setNetworkInfo({ 
+          name: network.name === 'unknown' ? 'Localhost' : network.name, 
+          chainId: Number(network.chainId) 
+        });
+        
+        const accounts = await provider.send('eth_requestAccounts', []);
+        if (accounts.length > 0) {
+          setAccount(accounts[0]);
+          const signer = await provider.getSigner();
+          
+          const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+          setContract(contract);
+          setIsConnected(true);
+          
+          await loadVaultData(contract, accounts[0]);
+          await loadProposals(contract);
+          
+          addNotification('Successfully connected to PublicFundVault!', 'success');
+        }
+      } catch (error) {
+        console.error('Error initializing app:', error);
+        if (error.message.includes('User rejected')) {
+          addNotification('Connection rejected by user', 'error');
+        } else {
+          addNotification('Failed to connect to the application. Please ensure MetaMask is unlocked and the correct network is selected.', 'error');
+        }
+      }
+    } else {
+      addNotification('Please install MetaMask to use this application', 'error');
+    }
+  }, [addNotification, loadVaultData, loadProposals]);
+
   // Donate ETH
   const donateEth = async () => {
     if (!contract || !donationAmount || parseFloat(donationAmount) <= 0) {
@@ -505,6 +505,13 @@ function App() {
       addNotification('Please enter a valid ETH amount', 'error');
       return;
     }
+
+    // Check if contract is deployed
+    const isDeployed = await checkContractDeployment(contract);
+    if (!isDeployed) {
+      addNotification('Contract not found. Please ensure the local blockchain is running and the contract is deployed.', 'error');
+      return;
+    }
     
     setLoading(true);
     try {
@@ -536,14 +543,32 @@ function App() {
       setActiveTab('proposals');
     } catch (error) {
       console.error('Error creating proposal:', error);
-      addNotification('Failed to create proposal. Please check your inputs and try again.', 'error');
+      if (error.message.includes('insufficient donation')) {
+        addNotification('You must make a donation before creating proposals.', 'error');
+      } else if (error.message.includes('proposal interval')) {
+        addNotification('Please wait 24 hours between proposal submissions.', 'error');
+      } else if (error.message.includes('User denied')) {
+        addNotification('Transaction rejected by user.', 'error');
+      } else {
+        addNotification('Failed to create proposal. Please check your inputs and try again.', 'error');
+      }
     }
     setLoading(false);
   };
 
   // Vote on proposal
   const voteOnProposal = async (proposalId, vote) => {
-    if (!contract) return;
+    if (!contract) {
+      addNotification('Contract not connected. Please refresh and try again.', 'error');
+      return;
+    }
+
+    // Check if contract is deployed
+    const isDeployed = await checkContractDeployment(contract);
+    if (!isDeployed) {
+      addNotification('Contract not found. Please ensure the local blockchain is running and the contract is deployed.', 'error');
+      return;
+    }
     
     setLoading(true);
     try {
@@ -556,14 +581,30 @@ function App() {
       addNotification(`Vote ${vote ? 'YES' : 'NO'} cast successfully!`, 'success');
     } catch (error) {
       console.error('Error voting:', error);
-      addNotification('Voting failed. You may have already voted on this proposal.', 'error');
+      if (error.message.includes('already voted')) {
+        addNotification('You have already voted on this proposal.', 'error');
+      } else if (error.message.includes('User denied')) {
+        addNotification('Transaction rejected by user.', 'error');
+      } else {
+        addNotification('Voting failed. Please check if the voting period is still active.', 'error');
+      }
     }
     setLoading(false);
   };
 
   // Execute proposal
   const executeProposal = async (proposalId) => {
-    if (!contract) return;
+    if (!contract) {
+      addNotification('Contract not connected. Please refresh and try again.', 'error');
+      return;
+    }
+
+    // Check if contract is deployed
+    const isDeployed = await checkContractDeployment(contract);
+    if (!isDeployed) {
+      addNotification('Contract not found. Please ensure the local blockchain is running and the contract is deployed.', 'error');
+      return;
+    }
     
     setLoading(true);
     try {
@@ -577,7 +618,15 @@ function App() {
       addNotification('Proposal executed successfully!', 'success');
     } catch (error) {
       console.error('Error executing proposal:', error);
-      addNotification('Execution failed. The proposal may not have met the required conditions.', 'error');
+      if (error.message.includes('Voting still active')) {
+        addNotification('Cannot execute: Voting period is still active.', 'error');
+      } else if (error.message.includes('Proposal failed')) {
+        addNotification('Proposal failed to meet the required majority for execution.', 'error');
+      } else if (error.message.includes('User denied')) {
+        addNotification('Transaction rejected by user.', 'error');
+      } else {
+        addNotification('Execution failed. The proposal may not have met the required conditions.', 'error');
+      }
     }
     setLoading(false);
   };
