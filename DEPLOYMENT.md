@@ -17,8 +17,9 @@
 2. **Configure Build Settings**
    - Framework Preset: `Create React App`
    - Root Directory: `frontend`
-   - Build Command: `npm run build`
+   - Build Command: `npm run vercel-build` (or leave default)
    - Output Directory: `build`
+   - Install Command: `npm install`
 
 3. **Environment Variables**
    Set these environment variables in Vercel:
@@ -76,6 +77,12 @@ serve -s build
    - Test on various screen sizes
    - Check touch interactions
    - Verify responsive design
+
+4. **404 Errors on Vercel**
+   - Ensure `vercel.json` is in the frontend directory
+   - Check that rewrites are properly configured for SPA routing
+   - Verify root directory is set to `frontend`
+   - Make sure build command uses `vercel-build` script
 
 ### Post-Deployment
 
